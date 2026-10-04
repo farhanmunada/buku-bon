@@ -1,6 +1,6 @@
 import { db, products, productUnits, customers, transactions, transactionItems, debtPayments } from "@/db";
 import { memoryStore } from "./store";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, inArray } from "drizzle-orm";
 import {
   calculateBaseQuantity,
   calculateItemCostSnapshot,
@@ -211,9 +211,35 @@ export async function saveTransactionData(input: SaveTransactionInput) {
   const rand = Math.floor(1000 + Math.random() * 9000);
   const invoiceNo = `BON-${dateStr}-${rand}`;
 
-  // Fetch current products to snapshot HPP
-  const allProds = await getProductsData();
-  const prodMap = new Map(allProds.map((p) => [p.id, p]));
+  // Fetch only cart products to snapshot HPP (targeted query, no full table scan)
+  const productIds = Array.from(new Set(input.items.map((it) => it.productId)));
+  const prodMap = new Map<number, { id: number; name: string; baseCostPrice: number }>();
+
+  if (isDbConfigured() && productIds.length > 0) {
+    try {
+      const targetedProds = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          baseCostPrice: products.baseCostPrice,
+        })
+        .from(products)
+        .where(inArray(products.id, productIds));
+
+      for (const p of targetedProds) {
+        prodMap.set(p.id, p);
+      }
+    } catch (err) {
+      console.warn("DB targeted fetch failed, fallback to memory store:", err);
+      for (const p of memoryStore.getProducts()) {
+        if (productIds.includes(p.id)) prodMap.set(p.id, p);
+      }
+    }
+  } else {
+    for (const p of memoryStore.getProducts()) {
+      if (productIds.includes(p.id)) prodMap.set(p.id, p);
+    }
+  }
 
   let totalAmount = 0;
   const processedItems = input.items.map((item) => {
@@ -268,7 +294,7 @@ export async function saveTransactionData(input: SaveTransactionInput) {
   }
 
   try {
-    // Neon PostgreSQL execution
+    // Neon PostgreSQL execution: 1 single header insert
     const [tx] = await db
       .insert(transactions)
       .values({
@@ -282,37 +308,52 @@ export async function saveTransactionData(input: SaveTransactionInput) {
       })
       .returning();
 
-    // Insert items & deduct stock
-    for (const item of processedItems) {
-      await db.insert(transactionItems).values({
-        transactionId: tx.id,
-        productId: item.productId,
-        unitName: item.unitName,
-        qty: item.qty,
-        conversionRate: item.conversionRate,
-        sellPrice: item.sellPrice,
-        costPriceSnapshot: item.costPriceSnapshot,
-        subtotal: item.subtotal,
-      });
+    // 1 single bulk insert for transaction items
+    const itemRows = processedItems.map((item) => ({
+      transactionId: tx.id,
+      productId: item.productId,
+      unitName: item.unitName,
+      qty: item.qty,
+      conversionRate: item.conversionRate,
+      sellPrice: item.sellPrice,
+      costPriceSnapshot: item.costPriceSnapshot,
+      subtotal: item.subtotal,
+    }));
+    await db.insert(transactionItems).values(itemRows);
 
+    // Group base stock deductions and run mutations concurrently
+    const stockDeductionMap = new Map<number, number>();
+    for (const item of processedItems) {
       const deductBaseQty = calculateBaseQuantity(item.qty, item.conversionRate);
-      await db
+      stockDeductionMap.set(
+        item.productId,
+        (stockDeductionMap.get(item.productId) || 0) + deductBaseQty
+      );
+    }
+
+    const mutations: Promise<unknown>[] = Array.from(
+      stockDeductionMap.entries()
+    ).map(([prodId, deductQty]) =>
+      db
         .update(products)
         .set({
-          stockBaseQty: sql`${products.stockBaseQty} - ${deductBaseQty}`,
+          stockBaseQty: sql`${products.stockBaseQty} - ${deductQty}`,
         })
-        .where(eq(products.id, item.productId));
+        .where(eq(products.id, prodId))
+    );
+
+    if (debtAmount > 0 && input.customerId) {
+      mutations.push(
+        db
+          .update(customers)
+          .set({
+            totalDebt: sql`${customers.totalDebt} + ${debtAmount}`,
+          })
+          .where(eq(customers.id, input.customerId))
+      );
     }
 
-    // Auto-debit customer debt
-    if (debtAmount > 0 && input.customerId) {
-      await db
-        .update(customers)
-        .set({
-          totalDebt: sql`${customers.totalDebt} + ${debtAmount}`,
-        })
-        .where(eq(customers.id, input.customerId));
-    }
+    await Promise.all(mutations);
 
     return { success: true, transaction: tx };
   } catch (err) {
@@ -474,36 +515,46 @@ export async function getReportsData() {
   }
 
   try {
-    const allTxs = await db.query.transactions.findMany({
-      with: {
-        items: true,
-        customer: true,
-      },
-      orderBy: [desc(transactions.id)],
-    });
+    const [summaryResult, costResult, debtResult, recentTxs, recentPayments] =
+      await Promise.all([
+        db
+          .select({
+            totalRevenue: sql<number>`COALESCE(SUM(${transactions.totalAmount}), 0)`,
+            totalCashFromPos: sql<number>`COALESCE(SUM(${transactions.paidAmount}), 0)`,
+            totalNewDebt: sql<number>`COALESCE(SUM(${transactions.debtAmount}), 0)`,
+          })
+          .from(transactions),
+        db
+          .select({
+            totalCost: sql<number>`COALESCE(SUM(${transactionItems.qty} * ${transactionItems.costPriceSnapshot}), 0)`,
+          })
+          .from(transactionItems),
+        db
+          .select({
+            totalCashFromDebt: sql<number>`COALESCE(SUM(${debtPayments.amountPaid}), 0)`,
+          })
+          .from(debtPayments),
+        db.query.transactions.findMany({
+          with: {
+            customer: true,
+          },
+          orderBy: [desc(transactions.id)],
+          limit: 100,
+        }),
+        db.query.debtPayments.findMany({
+          with: {
+            customer: true,
+          },
+          orderBy: [desc(debtPayments.id)],
+          limit: 100,
+        }),
+      ]);
 
-    const allPayments = await db.query.debtPayments.findMany({
-      with: {
-        customer: true,
-      },
-      orderBy: [desc(debtPayments.id)],
-    });
-
-    let totalRevenue = 0;
-    let totalCost = 0;
-    let totalCashFromPos = 0;
-    let totalNewDebt = 0;
-
-    for (const t of allTxs) {
-      totalRevenue += t.totalAmount;
-      totalCashFromPos += t.paidAmount;
-      totalNewDebt += t.debtAmount;
-      for (const it of t.items) {
-        totalCost += it.qty * it.costPriceSnapshot;
-      }
-    }
-
-    const totalCashFromDebt = allPayments.reduce((acc, p) => acc + p.amountPaid, 0);
+    const totalRevenue = Number(summaryResult[0]?.totalRevenue || 0);
+    const totalCashFromPos = Number(summaryResult[0]?.totalCashFromPos || 0);
+    const totalNewDebt = Number(summaryResult[0]?.totalNewDebt || 0);
+    const totalCost = Number(costResult[0]?.totalCost || 0);
+    const totalCashFromDebt = Number(debtResult[0]?.totalCashFromDebt || 0);
     const totalCashReceived = totalCashFromPos + totalCashFromDebt;
     const totalGrossProfit = totalRevenue - totalCost;
 
@@ -515,7 +566,7 @@ export async function getReportsData() {
       totalCashFromPos,
       totalCashFromDebt,
       totalNewDebt,
-      transactions: allTxs.map((t) => ({
+      transactions: recentTxs.map((t) => ({
         id: t.id,
         invoiceNo: t.invoiceNo,
         customerName: t.customer?.name,
@@ -525,7 +576,7 @@ export async function getReportsData() {
         paymentStatus: t.paymentStatus,
         createdAt: t.createdAt.toISOString(),
       })),
-      debtPayments: allPayments.map((p) => ({
+      debtPayments: recentPayments.map((p) => ({
         id: p.id,
         customerName: p.customer?.name,
         amountPaid: p.amountPaid,

@@ -19,10 +19,11 @@ export async function fetchPosInitialData() {
 export async function submitPosTransaction(input: SaveTransactionInput) {
   try {
     const result = await saveTransactionData(input);
-    revalidatePath("/pos");
     revalidatePath("/inventory");
-    revalidatePath("/debts");
     revalidatePath("/reports");
+    if (result.transaction.debtAmount > 0) {
+      revalidatePath("/debts");
+    }
     return { success: true, transaction: result.transaction };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Gagal memproses transaksi kasir";
