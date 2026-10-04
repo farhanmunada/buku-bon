@@ -371,40 +371,53 @@ export async function getInvoiceData(idOrInvoice: string | number) {
   return memoryStore.getTransactionByInvoice(String(idOrInvoice));
 }
 
+function getMemoryReportsData() {
+  const txs = memoryStore.getTransactions();
+  const payments = memoryStore.getDebtPayments();
+
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let totalCashFromPos = 0;
+  let totalNewDebt = 0;
+
+  for (const t of txs) {
+    totalRevenue += t.totalAmount;
+    totalCashFromPos += t.paidAmount;
+    totalNewDebt += t.debtAmount;
+    for (const it of t.items) {
+      totalCost += it.qty * it.costPriceSnapshot;
+    }
+  }
+
+  const totalCashFromDebt = payments.reduce((acc, p) => acc + p.amountPaid, 0);
+  const totalCashReceived = totalCashFromPos + totalCashFromDebt;
+  const totalGrossProfit = totalRevenue - totalCost;
+
+  return {
+    totalRevenue,
+    totalCost,
+    totalGrossProfit,
+    totalCashReceived,
+    totalCashFromPos,
+    totalCashFromDebt,
+    totalNewDebt,
+    transactions: txs.map((t) => ({
+      id: t.id,
+      invoiceNo: t.invoiceNo,
+      customerName: t.customerName,
+      totalAmount: t.totalAmount,
+      paidAmount: t.paidAmount,
+      debtAmount: t.debtAmount,
+      paymentStatus: t.paymentStatus,
+      createdAt: t.createdAt,
+    })),
+    debtPayments: payments,
+  };
+}
+
 export async function getReportsData() {
   if (!isDbConfigured()) {
-    const txs = memoryStore.getTransactions();
-    const payments = memoryStore.getDebtPayments();
-
-    let totalRevenue = 0;
-    let totalCost = 0;
-    let totalCashFromPos = 0;
-    let totalNewDebt = 0;
-
-    for (const t of txs) {
-      totalRevenue += t.totalAmount;
-      totalCashFromPos += t.paidAmount;
-      totalNewDebt += t.debtAmount;
-      for (const it of t.items) {
-        totalCost += it.qty * it.costPriceSnapshot;
-      }
-    }
-
-    const totalCashFromDebt = payments.reduce((acc, p) => acc + p.amountPaid, 0);
-    const totalCashReceived = totalCashFromPos + totalCashFromDebt;
-    const totalGrossProfit = totalRevenue - totalCost;
-
-    return {
-      totalRevenue,
-      totalCost,
-      totalGrossProfit,
-      totalCashReceived,
-      totalCashFromPos,
-      totalCashFromDebt,
-      totalNewDebt,
-      transactions: txs,
-      debtPayments: payments,
-    };
+    return getMemoryReportsData();
   }
 
   try {
@@ -469,6 +482,6 @@ export async function getReportsData() {
     };
   } catch (err) {
     console.warn("DB reports failed, fallback to memory store:", err);
-    return memoryStore.getTransactions();
+    return getMemoryReportsData();
   }
 }

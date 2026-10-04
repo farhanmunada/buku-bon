@@ -49,9 +49,21 @@ interface ReportsClientProps {
 }
 
 export function ReportsClient({ data }: ReportsClientProps) {
+  const safeData: ReportsData = {
+    totalRevenue: data?.totalRevenue ?? 0,
+    totalCost: data?.totalCost ?? 0,
+    totalGrossProfit: data?.totalGrossProfit ?? 0,
+    totalCashReceived: data?.totalCashReceived ?? 0,
+    totalCashFromPos: data?.totalCashFromPos ?? 0,
+    totalCashFromDebt: data?.totalCashFromDebt ?? 0,
+    totalNewDebt: data?.totalNewDebt ?? 0,
+    transactions: Array.isArray(data?.transactions) ? data.transactions : [],
+    debtPayments: Array.isArray(data?.debtPayments) ? data.debtPayments : [],
+  };
+
   const marginPercent =
-    data.totalRevenue > 0
-      ? ((data.totalGrossProfit / data.totalRevenue) * 100).toFixed(1)
+    safeData.totalRevenue > 0
+      ? ((safeData.totalGrossProfit / safeData.totalRevenue) * 100).toFixed(1)
       : "0";
 
   return (
@@ -66,7 +78,7 @@ export function ReportsClient({ data }: ReportsClientProps) {
                 Laba Kotor Riil
               </span>
               <div className="text-2xl sm:text-3xl font-black text-emerald-700 mt-1">
-                Rp {data.totalGrossProfit.toLocaleString("id-ID")}
+                Rp {safeData.totalGrossProfit.toLocaleString("id-ID")}
               </div>
               <p className="text-xs text-slate-500 mt-1 font-medium">
                 Margin Keuntungan: <strong className="text-emerald-700">{marginPercent}%</strong>
@@ -89,11 +101,11 @@ export function ReportsClient({ data }: ReportsClientProps) {
                 Total Uang Kas Masuk
               </span>
               <div className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
-                Rp {data.totalCashReceived.toLocaleString("id-ID")}
+                Rp {safeData.totalCashReceived.toLocaleString("id-ID")}
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Kasir: Rp {data.totalCashFromPos.toLocaleString("id-ID")} + Utang: Rp{" "}
-                {data.totalCashFromDebt.toLocaleString("id-ID")}
+                Kasir: Rp {safeData.totalCashFromPos.toLocaleString("id-ID")} + Utang: Rp{" "}
+                {safeData.totalCashFromDebt.toLocaleString("id-ID")}
               </p>
             </div>
             <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
@@ -113,10 +125,10 @@ export function ReportsClient({ data }: ReportsClientProps) {
                 Omzet Penjualan
               </span>
               <div className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
-                Rp {data.totalRevenue.toLocaleString("id-ID")}
+                Rp {safeData.totalRevenue.toLocaleString("id-ID")}
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Modal (HPP): Rp {data.totalCost.toLocaleString("id-ID")}
+                Modal (HPP): Rp {safeData.totalCost.toLocaleString("id-ID")}
               </p>
             </div>
             <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
@@ -136,7 +148,7 @@ export function ReportsClient({ data }: ReportsClientProps) {
                 Total Piutang / Bon Masuk
               </span>
               <div className="text-2xl sm:text-3xl font-black text-rose-600 mt-1">
-                Rp {data.totalNewDebt.toLocaleString("id-ID")}
+                Rp {safeData.totalNewDebt.toLocaleString("id-ID")}
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 Penambahan bon dari kasir
@@ -161,10 +173,10 @@ export function ReportsClient({ data }: ReportsClientProps) {
               <FileText className="w-5 h-5 text-emerald-600" />
               <span className="font-bold text-slate-900">Riwayat Transaksi Penjualan Kasir</span>
             </div>
-            <span className="text-xs text-slate-500">{data.transactions.length} transaksi</span>
+            <span className="text-xs text-slate-500">{safeData.transactions.length} transaksi</span>
           </div>
 
-          {data.transactions.length === 0 ? (
+          {safeData.transactions.length === 0 ? (
             <div className="p-12 text-center text-slate-400 text-sm">
               Belum ada transaksi penjualan yang tercatat.
             </div>
@@ -182,7 +194,7 @@ export function ReportsClient({ data }: ReportsClientProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.transactions.map((tx) => (
+                  {safeData.transactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-4 font-medium text-slate-900">
                         <div className="font-bold text-xs font-mono">{tx.invoiceNo}</div>
@@ -253,13 +265,13 @@ export function ReportsClient({ data }: ReportsClientProps) {
             <span className="text-xs text-slate-500">Mutasi kas pelunasan bon warga</span>
           </div>
 
-          {data.debtPayments.length === 0 ? (
+          {safeData.debtPayments.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">
               Belum ada riwayat pembayaran utang mandiri.
             </div>
           ) : (
             <div className="overflow-y-auto divide-y divide-slate-100 flex-1 max-h-[460px]">
-              {data.debtPayments.map((p) => (
+              {safeData.debtPayments.map((p) => (
                 <div key={p.id} className="p-3.5 hover:bg-slate-50 transition-colors">
                   <div className="flex justify-between items-start">
                     <div className="font-bold text-slate-900 text-sm">{p.customerName}</div>

@@ -93,4 +93,11 @@ describe("POS Sembako Business Logic", () => {
     // Total piutang baru masuk: 30.000
     expect(recap.totalNewReceivables).toBe(30000);
   });
+
+  it("menangani kalkulasi rekap harian saat belum ada transaksi tanpa error", () => {
+    const recap = calculateDailyRecap([], []);
+    expect(recap.totalCashReceived).toBe(0);
+    expect(recap.totalGrossProfit).toBe(0);
+    expect(recap.totalNewReceivables).toBe(0);
+  });
 });
