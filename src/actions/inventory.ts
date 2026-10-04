@@ -15,10 +15,16 @@ export async function fetchInventoryProducts() {
 export async function restockProductAction(
   productId: number,
   addBaseQty?: number,
-  newBaseCostPrice?: number
+  newBaseCostPrice?: number,
+  useWeightedAverage?: boolean
 ) {
   try {
-    const updated = await quickRestockData(productId, addBaseQty, newBaseCostPrice);
+    const updated = await quickRestockData(
+      productId,
+      addBaseQty,
+      newBaseCostPrice,
+      useWeightedAverage
+    );
     revalidatePath("/inventory");
     revalidatePath("/pos");
     return { success: true, product: updated };

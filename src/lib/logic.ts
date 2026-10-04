@@ -124,3 +124,72 @@ export function calculateDailyRecap(
     totalNewReceivables,
   };
 }
+
+/**
+ * Kalkulasi HPP rata-rata tertimbang (Weighted Moving Average Cost)
+ * Rumus: ((Stok Lama * HPP Lama) + (Stok Baru * HPP Baru)) / (Stok Lama + Stok Baru)
+ */
+export function calculateWeightedMovingAverageCost(
+  currentStock: number,
+  currentCost: number,
+  addStock: number,
+  newCost: number
+): number {
+  if (addStock <= 0) return currentCost;
+  if (currentStock <= 0) return Math.round(newCost);
+  const totalCost = currentStock * currentCost + addStock * newCost;
+  const totalStock = currentStock + addStock;
+  return Math.round(totalCost / totalStock);
+}
+
+/**
+ * Kalkulasi rekomendasi harga jual berdasarkan modal dan target margin,
+ * dibulatkan ke kelipatan rupiah terdekat (contoh: 500 atau 1000).
+ * Rumus: Modal / (1 - Target Margin / 100) dibulatkan ke atas.
+ */
+export function calculateRecommendedSellPrice(
+  costPrice: number,
+  targetMarginPercent: number = 20,
+  roundTo: number = 500
+): number {
+  if (costPrice <= 0) return 0;
+  const rawPrice = costPrice / (1 - targetMarginPercent / 100);
+  return Math.ceil(rawPrice / roundTo) * roundTo;
+}
+
+/**
+ * Hitung margin keuntungan persentase dari harga jual dan modal tebusan
+ * Rumus: ((Harga Jual - Modal) / Harga Jual) * 100%
+ */
+export function calculateMarginPercent(sellPrice: number, costPrice: number): number {
+  if (sellPrice <= 0) return 0;
+  const margin = ((sellPrice - costPrice) / sellPrice) * 100;
+  return Math.round(margin * 10) / 10;
+}
+
+/**
+ * Evaluasi apakah margin harga jual berada di bawah ambang batas minimum atau negatif
+ */
+export function checkMarginWarning(
+  sellPrice: number,
+  costPrice: number,
+  minMarginPercent: number = 10
+): {
+  isLowMargin: boolean;
+  isNegative: boolean;
+  marginPercent: number;
+  suggestedPrice: number;
+} {
+  const marginPercent = calculateMarginPercent(sellPrice, costPrice);
+  const isNegative = sellPrice < costPrice;
+  const isLowMargin = marginPercent < minMarginPercent;
+  const roundStep = costPrice >= 10000 ? 500 : 100;
+  const suggestedPrice = calculateRecommendedSellPrice(costPrice, minMarginPercent, roundStep);
+
+  return {
+    isLowMargin,
+    isNegative,
+    marginPercent,
+    suggestedPrice,
+  };
+}

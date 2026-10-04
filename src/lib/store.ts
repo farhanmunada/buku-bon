@@ -1,4 +1,6 @@
 // In-memory fallback repository when DATABASE_URL is not set (e.g. offline dev / initial run)
+import { calculateWeightedMovingAverageCost } from "./logic";
+
 export interface MockProductUnit {
   id: number;
   productId: number;
@@ -198,15 +200,37 @@ export const memoryStore = {
     mockProducts.push(newProduct);
     return newProduct;
   },
-  updateStockAndCost: (productId: number, addBaseQty?: number, newBaseCostPrice?: number) => {
+  updateStockAndCost: (
+    productId: number,
+    addBaseQty?: number,
+    newBaseCostPrice?: number,
+    useWeightedAverage?: boolean
+  ) => {
     const prod = mockProducts.find((p) => p.id === productId);
     if (!prod) throw new Error("Produk tidak ditemukan");
-    if (typeof addBaseQty === "number" && !isNaN(addBaseQty) && addBaseQty !== 0) {
-      prod.stockBaseQty += addBaseQty;
+    const safeQty = typeof addBaseQty === "number" && !isNaN(addBaseQty) ? addBaseQty : 0;
+    const safeCost =
+      typeof newBaseCostPrice === "number" && !isNaN(newBaseCostPrice) && newBaseCostPrice > 0
+        ? newBaseCostPrice
+        : undefined;
+
+    if (safeCost) {
+      if (useWeightedAverage && safeQty > 0 && prod.stockBaseQty > 0) {
+        prod.baseCostPrice = calculateWeightedMovingAverageCost(
+          prod.stockBaseQty,
+          prod.baseCostPrice,
+          safeQty,
+          safeCost
+        );
+      } else {
+        prod.baseCostPrice = safeCost;
+      }
     }
-    if (newBaseCostPrice !== undefined && !isNaN(newBaseCostPrice) && newBaseCostPrice > 0) {
-      prod.baseCostPrice = newBaseCostPrice;
+
+    if (safeQty !== 0) {
+      prod.stockBaseQty += safeQty;
     }
+
     return prod;
   },
   updateUnitSellPrice: (unitId: number, newSellPrice: number) => {

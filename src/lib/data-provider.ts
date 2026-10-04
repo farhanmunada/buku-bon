@@ -1,7 +1,11 @@
 import { db, products, productUnits, customers, transactions, transactionItems, debtPayments } from "@/db";
 import { memoryStore } from "./store";
 import { eq, desc, sql } from "drizzle-orm";
-import { calculateBaseQuantity, calculateItemCostSnapshot } from "./logic";
+import {
+  calculateBaseQuantity,
+  calculateItemCostSnapshot,
+  calculateWeightedMovingAverageCost,
+} from "./logic";
 
 export function isDbConfigured(): boolean {
   const url = process.env.DATABASE_URL;
@@ -43,7 +47,8 @@ export async function getCustomersData() {
 export async function quickRestockData(
   productId: number,
   addBaseQty?: number,
-  newBaseCostPrice?: number
+  newBaseCostPrice?: number,
+  useWeightedAverage?: boolean
 ) {
   const safeQty = typeof addBaseQty === "number" && !isNaN(addBaseQty) ? addBaseQty : 0;
   const safeCost =
@@ -52,7 +57,7 @@ export async function quickRestockData(
       : undefined;
 
   if (!isDbConfigured()) {
-    return memoryStore.updateStockAndCost(productId, safeQty, safeCost);
+    return memoryStore.updateStockAndCost(productId, safeQty, safeCost, useWeightedAverage);
   }
 
   try {
@@ -62,8 +67,30 @@ export async function quickRestockData(
     if (safeQty !== 0) {
       updateData.stockBaseQty = sql`${products.stockBaseQty} + ${safeQty}`;
     }
+
     if (safeCost) {
-      updateData.baseCostPrice = safeCost;
+      if (useWeightedAverage && safeQty > 0) {
+        const [current] = await db
+          .select({
+            stockBaseQty: products.stockBaseQty,
+            baseCostPrice: products.baseCostPrice,
+          })
+          .from(products)
+          .where(eq(products.id, productId));
+
+        if (current && current.stockBaseQty > 0) {
+          updateData.baseCostPrice = calculateWeightedMovingAverageCost(
+            current.stockBaseQty,
+            current.baseCostPrice,
+            safeQty,
+            safeCost
+          );
+        } else {
+          updateData.baseCostPrice = safeCost;
+        }
+      } else {
+        updateData.baseCostPrice = safeCost;
+      }
     }
 
     const [updated] = await db
@@ -75,7 +102,7 @@ export async function quickRestockData(
     return updated;
   } catch (err) {
     console.warn("DB restock failed, fallback to memory store:", err);
-    return memoryStore.updateStockAndCost(productId, safeQty, safeCost);
+    return memoryStore.updateStockAndCost(productId, safeQty, safeCost, useWeightedAverage);
   }
 }
 

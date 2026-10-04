@@ -6,6 +6,10 @@ import {
   calculateTransactionSummary,
   calculateNewCustomerDebt,
   calculateDailyRecap,
+  calculateWeightedMovingAverageCost,
+  calculateRecommendedSellPrice,
+  calculateMarginPercent,
+  checkMarginWarning,
 } from "../src/lib/logic";
 
 describe("POS Sembako Business Logic", () => {
@@ -99,5 +103,41 @@ describe("POS Sembako Business Logic", () => {
     expect(recap.totalCashReceived).toBe(0);
     expect(recap.totalGrossProfit).toBe(0);
     expect(recap.totalNewReceivables).toBe(0);
+  });
+
+  it("menghitung HPP rata-rata tertimbang saat fluktuasi harga kulakan harian", () => {
+    // Sisa 10 pcs @ 15.000, masuk 40 pcs @ 15.500 -> modal baru 15.400
+    const weightedHpp = calculateWeightedMovingAverageCost(10, 15000, 40, 15500);
+    expect(weightedHpp).toBe(15400);
+
+    // Jika stok awal 0, langsung gunakan HPP baru
+    expect(calculateWeightedMovingAverageCost(0, 15000, 20, 14500)).toBe(14500);
+  });
+
+  it("mengkalkulasi rekomendasi harga jual eceran dari modal dus pecahan", () => {
+    // Dus 50.000 isi 33 pcs -> modal per pcs = 1515.15
+    const costPerPcs = 50000 / 33;
+    // Target margin 20% dibulatkan ke kelipatan Rp 500 terdekat
+    const retailPrice = calculateRecommendedSellPrice(costPerPcs, 20, 500);
+    expect(retailPrice).toBe(2000);
+
+    // Dus target margin 10% dibulatkan ke kelipatan Rp 1.000 terdekat
+    const boxPrice = calculateRecommendedSellPrice(50000, 10, 1000);
+    expect(boxPrice).toBe(56000);
+  });
+
+  it("menghitung margin persentase dan mendeteksi margin tergerus atau negatif", () => {
+    // Jual 2.000, modal 1.515 -> margin ~24.3%
+    expect(calculateMarginPercent(2000, 1515)).toBe(24.3);
+
+    // Jual 16.000, modal naik jadi 15.500 (margin 3.1% < minimum 10%)
+    const warning = checkMarginWarning(16000, 15500, 10);
+    expect(warning.isLowMargin).toBe(true);
+    expect(warning.isNegative).toBe(false);
+
+    // Jual 15.000, modal naik jadi 15.500 (rugi / margin negatif)
+    const negative = checkMarginWarning(15000, 15500, 10);
+    expect(negative.isNegative).toBe(true);
+    expect(negative.suggestedPrice).toBe(17500);
   });
 });
