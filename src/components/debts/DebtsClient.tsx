@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { PosCustomer } from "@/components/pos/PaymentModal";
 import { QuickPayModal } from "./QuickPayModal";
 import { AddCustomerModal } from "./AddCustomerModal";
+import { useLiveSync } from "@/hooks/useLiveSync";
+import { LiveBadge } from "@/components/common/LiveBadge";
 import {
   Search,
   UserPlus,
@@ -21,12 +23,18 @@ interface DebtsClientProps {
 }
 
 export function DebtsClient({ initialCustomers }: DebtsClientProps) {
-  const [customers] = useState<PosCustomer[]>(initialCustomers);
+  const [customers, setCustomers] = useState<PosCustomer[]>(initialCustomers);
   const [searchQuery, setSearchQuery] = useState("");
   const [onlyActiveDebt, setOnlyActiveDebt] = useState(true);
   const [selectedPayCustomer, setSelectedPayCustomer] = useState<PosCustomer | null>(null);
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const router = useRouter();
+
+  const { isLive, setIsLive, isSyncing, refreshNow } = useLiveSync({ intervalMs: 6000 });
+
+  useEffect(() => {
+    setCustomers(initialCustomers);
+  }, [initialCustomers]);
 
   // Metrics
   const activeDebtors = customers.filter((c) => c.totalDebt > 0);
@@ -106,13 +114,22 @@ export function DebtsClient({ initialCustomers }: DebtsClientProps) {
           </label>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsAddCustomerOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-md transition-colors"
-        >
-          <UserPlus className="w-4 h-4 text-emerald-400" /> Tambah Warga
-        </button>
+        <div className="flex items-center gap-2">
+          <LiveBadge
+            isLive={isLive}
+            setIsLive={setIsLive}
+            isSyncing={isSyncing}
+            onRefreshNow={refreshNow}
+            label="Live Utang"
+          />
+          <button
+            type="button"
+            onClick={() => setIsAddCustomerOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-md transition-colors"
+          >
+            <UserPlus className="w-4 h-4 text-emerald-400" /> Tambah Warga
+          </button>
+        </div>
       </div>
 
       {/* Customer Debts Table */}

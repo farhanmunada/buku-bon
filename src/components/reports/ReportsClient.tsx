@@ -2,6 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
+import { useLiveSync } from "@/hooks/useLiveSync";
+import { LiveBadge } from "@/components/common/LiveBadge";
 import {
   TrendingUp,
   DollarSign,
@@ -49,6 +51,8 @@ interface ReportsClientProps {
 }
 
 export function ReportsClient({ data }: ReportsClientProps) {
+  const { isLive, setIsLive, isSyncing, refreshNow } = useLiveSync({ intervalMs: 6000 });
+
   const safeData: ReportsData = {
     totalRevenue: data?.totalRevenue ?? 0,
     totalCost: data?.totalCost ?? 0,
@@ -68,6 +72,17 @@ export function ReportsClient({ data }: ReportsClientProps) {
 
   return (
     <div className="space-y-6">
+      {/* Live Sync Status Bar */}
+      <div className="flex justify-end items-center">
+        <LiveBadge
+          isLive={isLive}
+          setIsLive={setIsLive}
+          isSyncing={isSyncing}
+          onRefreshNow={refreshNow}
+          label="Live Laporan"
+        />
+      </div>
+
       {/* Metric Cards Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Laba Kotor Riil */}
