@@ -9,4 +9,5 @@ build
 *.pem
 id_rsa
 *.log
+*.tsbuildinfo
 .DS_Store
