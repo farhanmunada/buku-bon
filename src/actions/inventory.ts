@@ -4,6 +4,7 @@ import {
   getProductsData,
   quickRestockData,
   createProductData,
+  updateProductUnitSellPriceData,
 } from "@/lib/data-provider";
 import { revalidatePath } from "next/cache";
 
@@ -13,7 +14,7 @@ export async function fetchInventoryProducts() {
 
 export async function restockProductAction(
   productId: number,
-  addBaseQty: number,
+  addBaseQty?: number,
   newBaseCostPrice?: number
 ) {
   try {
@@ -23,6 +24,18 @@ export async function restockProductAction(
     return { success: true, product: updated };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Gagal update stok barang";
+    return { success: false, error: message };
+  }
+}
+
+export async function updateUnitSellPriceAction(unitId: number, newSellPrice: number) {
+  try {
+    const updated = await updateProductUnitSellPriceData(unitId, newSellPrice);
+    revalidatePath("/inventory");
+    revalidatePath("/pos");
+    return { success: true, unit: updated };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal update harga jual satuan";
     return { success: false, error: message };
   }
 }

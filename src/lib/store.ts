@@ -198,14 +198,26 @@ export const memoryStore = {
     mockProducts.push(newProduct);
     return newProduct;
   },
-  updateStockAndCost: (productId: number, addBaseQty: number, newBaseCostPrice?: number) => {
+  updateStockAndCost: (productId: number, addBaseQty?: number, newBaseCostPrice?: number) => {
     const prod = mockProducts.find((p) => p.id === productId);
     if (!prod) throw new Error("Produk tidak ditemukan");
-    prod.stockBaseQty += addBaseQty;
-    if (newBaseCostPrice !== undefined && newBaseCostPrice > 0) {
+    if (typeof addBaseQty === "number" && !isNaN(addBaseQty) && addBaseQty !== 0) {
+      prod.stockBaseQty += addBaseQty;
+    }
+    if (newBaseCostPrice !== undefined && !isNaN(newBaseCostPrice) && newBaseCostPrice > 0) {
       prod.baseCostPrice = newBaseCostPrice;
     }
     return prod;
+  },
+  updateUnitSellPrice: (unitId: number, newSellPrice: number) => {
+    for (const p of mockProducts) {
+      const u = p.units.find((unit) => unit.id === unitId);
+      if (u) {
+        u.sellPrice = newSellPrice;
+        return u;
+      }
+    }
+    throw new Error("Satuan tidak ditemukan");
   },
   getCustomers: () => mockCustomers,
   getCustomerById: (id: number) => mockCustomers.find((c) => c.id === id),

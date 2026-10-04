@@ -42,20 +42,28 @@ export async function getCustomersData() {
 
 export async function quickRestockData(
   productId: number,
-  addBaseQty: number,
+  addBaseQty?: number,
   newBaseCostPrice?: number
 ) {
+  const safeQty = typeof addBaseQty === "number" && !isNaN(addBaseQty) ? addBaseQty : 0;
+  const safeCost =
+    typeof newBaseCostPrice === "number" && !isNaN(newBaseCostPrice) && newBaseCostPrice > 0
+      ? newBaseCostPrice
+      : undefined;
+
   if (!isDbConfigured()) {
-    return memoryStore.updateStockAndCost(productId, addBaseQty, newBaseCostPrice);
+    return memoryStore.updateStockAndCost(productId, safeQty, safeCost);
   }
 
   try {
     const updateData: Record<string, unknown> = {
-      stockBaseQty: sql`${products.stockBaseQty} + ${addBaseQty}`,
       updatedAt: new Date(),
     };
-    if (newBaseCostPrice && newBaseCostPrice > 0) {
-      updateData.baseCostPrice = newBaseCostPrice;
+    if (safeQty !== 0) {
+      updateData.stockBaseQty = sql`${products.stockBaseQty} + ${safeQty}`;
+    }
+    if (safeCost) {
+      updateData.baseCostPrice = safeCost;
     }
 
     const [updated] = await db
@@ -67,7 +75,25 @@ export async function quickRestockData(
     return updated;
   } catch (err) {
     console.warn("DB restock failed, fallback to memory store:", err);
-    return memoryStore.updateStockAndCost(productId, addBaseQty, newBaseCostPrice);
+    return memoryStore.updateStockAndCost(productId, safeQty, safeCost);
+  }
+}
+
+export async function updateProductUnitSellPriceData(unitId: number, newSellPrice: number) {
+  if (!isDbConfigured()) {
+    return memoryStore.updateUnitSellPrice(unitId, newSellPrice);
+  }
+
+  try {
+    const [updated] = await db
+      .update(productUnits)
+      .set({ sellPrice: newSellPrice })
+      .where(eq(productUnits.id, unitId))
+      .returning();
+    return updated;
+  } catch (err) {
+    console.warn("DB updateUnitSellPrice failed, fallback to memory store:", err);
+    return memoryStore.updateUnitSellPrice(unitId, newSellPrice);
   }
 }
 

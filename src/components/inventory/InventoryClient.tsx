@@ -2,9 +2,9 @@
 
 import React, { useState } from "react";
 import { PosProduct } from "@/components/pos/SearchProductBar";
-import { restockProductAction } from "@/actions/inventory";
+import { restockProductAction, updateUnitSellPriceAction } from "@/actions/inventory";
 import { AddProductModal } from "./AddProductModal";
-import { Search, Plus, Check, RefreshCw, Layers } from "lucide-react";
+import { Search, Plus, Check, RefreshCw, Layers, Edit2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface InventoryClientProps {
@@ -22,6 +22,12 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
   const [newCostMap, setNewCostMap] = useState<Record<number, string>>({});
   const [loadingRowId, setLoadingRowId] = useState<number | null>(null);
   const [successRowId, setSuccessRowId] = useState<number | null>(null);
+
+  // Inline edit state for unit selling price
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null);
+  const [editPriceInput, setEditPriceInput] = useState<string>("");
+  const [savingUnitId, setSavingUnitId] = useState<number | null>(null);
+
   const router = useRouter();
 
   const categories = ["Semua", ...Array.from(new Set(products.map((p) => p.category)))];
@@ -36,10 +42,11 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
   });
 
   const handleRestockSubmit = async (productId: number) => {
-    const rawQty = restockQtyMap[productId] || "0";
-    const addQty = parseInt(rawQty, 10);
-    const rawNewCost = newCostMap[productId];
-    const newCost = rawNewCost ? parseInt(rawNewCost, 10) : undefined;
+    const rawQty = restockQtyMap[productId] || "";
+    const rawNewCost = newCostMap[productId] || "";
+
+    const addQty = rawQty.trim() ? parseInt(rawQty, 10) : 0;
+    const newCost = rawNewCost.trim() ? parseInt(rawNewCost, 10) : undefined;
 
     if (addQty === 0 && (!newCost || newCost <= 0)) {
       return;
@@ -47,7 +54,11 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
 
     setLoadingRowId(productId);
     try {
-      const res = await restockProductAction(productId, addQty, newCost);
+      const res = await restockProductAction(
+        productId,
+        addQty !== 0 ? addQty : undefined,
+        newCost
+      );
       if (res.success) {
         setProducts((prev) =>
           prev.map((p) => {
@@ -69,6 +80,32 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
       }
     } finally {
       setLoadingRowId(null);
+    }
+  };
+
+  const handleSaveSellPrice = async (unitId: number, productId: number) => {
+    const price = parseInt(editPriceInput.replace(/\D/g, ""), 10);
+    if (!price || price <= 0) return;
+
+    setSavingUnitId(unitId);
+    try {
+      const res = await updateUnitSellPriceAction(unitId, price);
+      if (res.success) {
+        setProducts((prev) =>
+          prev.map((p) => {
+            if (p.id === productId) {
+              return {
+                ...p,
+                units: p.units.map((u) => (u.id === unitId ? { ...u, sellPrice: price } : u)),
+              };
+            }
+            return p;
+          })
+        );
+        setEditingUnitId(null);
+      }
+    } finally {
+      setSavingUnitId(null);
     }
   };
 
@@ -120,7 +157,7 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-emerald-600" />
-            <span className="font-bold text-slate-900">Daftar Stok & Penyesuaian Modal Instan</span>
+            <span className="font-bold text-slate-900">Daftar Stok, Harga Jual, & Modal HPP Riil</span>
           </div>
           <span className="text-xs text-slate-500">
             Total {filteredProducts.length} barang terdaftar
@@ -132,9 +169,9 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
             <thead className="bg-slate-100/75 text-xs uppercase font-bold text-slate-600 border-b border-slate-200">
               <tr>
                 <th className="py-3.5 px-4">Nama Barang Sembako</th>
-                <th className="py-3.5 px-4">Satuan & Harga Jual</th>
+                <th className="py-3.5 px-4">Satuan & Harga Jual Toko (Bisa Edit)</th>
                 <th className="py-3.5 px-4 text-center">Stok Riil (Dasar)</th>
-                <th className="py-3.5 px-4 text-right">Modal Tebusan (HPP)</th>
+                <th className="py-3.5 px-4 text-right">Modal Tebusan Agen (HPP)</th>
                 <th className="py-3.5 px-4 bg-emerald-50/50 text-slate-800">
                   ⚡ Restock Kilat (Tambah Stok / Update HPP)
                 </th>
@@ -160,19 +197,76 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
                       </div>
                     </td>
 
-                    {/* Satuan & Harga Jual */}
+                    {/* Satuan & Harga Jual Toko dengan Edit Cepat */}
                     <td className="py-3 px-4">
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-col gap-1.5">
                         {p.units && p.units.length > 0 ? (
-                          p.units.map((u) => (
-                            <span
-                              key={u.id}
-                              className="text-xs bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg text-slate-700"
-                            >
-                              <strong className="text-slate-900">{u.unitName}</strong>: Rp{" "}
-                              {u.sellPrice.toLocaleString("id-ID")}
-                            </span>
-                          ))
+                          p.units.map((u) => {
+                            const isEditing = editingUnitId === u.id;
+                            const isSaving = savingUnitId === u.id;
+
+                            if (isEditing) {
+                              return (
+                                <div
+                                  key={u.id}
+                                  className="flex items-center gap-1 bg-white p-1 rounded-lg border-2 border-emerald-500 shadow-xs"
+                                >
+                                  <span className="text-xs font-bold text-slate-800 pl-1">
+                                    {u.unitName}: Rp
+                                  </span>
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={editPriceInput}
+                                    onChange={(e) => setEditPriceInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveSellPrice(u.id, p.id);
+                                      if (e.key === "Escape") setEditingUnitId(null);
+                                    }}
+                                    className="w-24 text-xs font-bold py-0.5 px-1 bg-slate-50 border border-slate-300 rounded focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={() => handleSaveSellPrice(u.id, p.id)}
+                                    className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                                    title="Simpan Harga Jual"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingUnitId(null)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                                    title="Batal"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onClick={() => {
+                                  setEditingUnitId(u.id);
+                                  setEditPriceInput(String(u.sellPrice));
+                                }}
+                                className="inline-flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 px-2 py-1 rounded-lg text-slate-700 transition-colors text-left group"
+                                title="Klik untuk ubah harga jual satuan ini"
+                              >
+                                <span>
+                                  <strong className="text-slate-900">{u.unitName}</strong>:{" "}
+                                  <span className="text-emerald-700 font-bold">
+                                    Rp {u.sellPrice.toLocaleString("id-ID")}
+                                  </span>
+                                </span>
+                                <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-emerald-600 opacity-60 group-hover:opacity-100" />
+                              </button>
+                            );
+                          })
                         ) : (
                           <span className="text-xs text-slate-400">-</span>
                         )}
@@ -192,9 +286,11 @@ export function InventoryClient({ initialProducts }: InventoryClientProps) {
                       </span>
                     </td>
 
-                    {/* Modal Dasar */}
+                    {/* Modal Dasar (HPP) */}
                     <td className="py-3 px-4 text-right font-medium text-slate-800 whitespace-nowrap">
-                      Rp {p.baseCostPrice.toLocaleString("id-ID")}
+                      <span className="text-slate-900 font-black text-sm">
+                        Rp {p.baseCostPrice.toLocaleString("id-ID")}
+                      </span>
                       <span className="text-xs text-slate-400 block">/{p.baseUnit}</span>
                     </td>
 
